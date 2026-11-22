@@ -1,16 +1,21 @@
-import os
+import subprocess
+import logging
+from typing import List, Tuple, Optional
 import cv2
 import numpy as np
-import logging
-from typing import List, Tuple, Dict, Any, Optional
-from pathlib import Path
-from app.config import DATA_DIR
+from app.config import DATA_DIR, FFMPEG_PATH, SUBPROCESS_FLAGS
 
 logger = logging.getLogger("mycliping.face_tracker")
 
 CASCADE_PATH = DATA_DIR / "models" / "haarcascade_frontalface_default.xml"
 
+# Detections are (timestamp, center_x, center_y, face_width), all normalized 0..1
+Detection = Tuple[float, float, float, float]
+
+
 class FaceTracker:
+    ANALYSIS_WIDTH = 480  # faces are detected on a small grayscale copy (much faster)
+
     def __init__(self):
         self.detector = None
         self.available = False
@@ -21,8 +26,6 @@ class FaceTracker:
             if not CASCADE_PATH.exists():
                 CASCADE_PATH.parent.mkdir(parents=True, exist_ok=True)
                 import urllib.request
-                import ssl
-                ctx = ssl._create_unverified_context()
                 url = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
                 urllib.request.urlretrieve(url, str(CASCADE_PATH.resolve()))
 
@@ -39,102 +42,88 @@ class FaceTracker:
         logger.info("Using smart center focus for 9:16 vertical crop.")
         self.available = False
 
+    def _read_gray_frames(
+        self, video_path: str, start: float, duration: float, w: int, h: int, keyframes_only: bool
+    ) -> List[np.ndarray]:
+        """Decodes small grayscale frames with FFmpeg (multithreaded, can decode keyframes only)."""
+        cmd = [FFMPEG_PATH, "-hide_banner", "-loglevel", "error", "-nostdin"]
+        if keyframes_only:
+            cmd += ["-skip_frame", "nokey"]
+        cmd += ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", video_path, "-an", "-sn"]
+        if keyframes_only:
+            cmd += ["-vf", f"scale={w}:{h}", "-fps_mode", "passthrough"]
+        else:
+            cmd += ["-vf", f"fps=1,scale={w}:{h}"]
+        cmd += ["-f", "rawvideo", "-pix_fmt", "gray", "-"]
+
+        res = subprocess.run(cmd, capture_output=True, timeout=180, creationflags=SUBPROCESS_FLAGS)
+        frame_size = w * h
+        data = res.stdout
+        n = len(data) // frame_size
+        return [np.frombuffer(data, dtype=np.uint8, count=frame_size, offset=i * frame_size).reshape(h, w) for i in range(n)]
+
     def analyze_face_positions(
         self,
         video_path: str,
         start_time: float,
         end_time: float,
-        sample_fps: float = 2.0
-    ) -> List[Tuple[float, float, float, float]]:
+        src_w: Optional[int] = None,
+        src_h: Optional[int] = None,
+    ) -> List[Detection]:
         """
-        Samples video frames between start_time and end_time.
-        Returns a list of (timestamp, center_x, center_y, face_width) normalized (0.0 to 1.0).
+        Samples frames between start_time and end_time and returns only frames
+        where a face was found. Empty list = no face (caller centers the crop).
         """
         if not self.available or self.detector is None:
-            return [(0.0, 0.5, 0.5, 0.2)]
+            return []
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            logger.error(f"Cannot open video for face tracking: {video_path}")
-            return [(0.0, 0.5, 0.5, 0.2)]
+        if not src_w or not src_h:
+            cap = cv2.VideoCapture(video_path)
+            src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1920
+            src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1080
+            cap.release()
 
-        video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        frame_step = max(1, int(video_fps / sample_fps))
-        start_frame = int(start_time * video_fps)
-        end_frame = int(end_time * video_fps)
+        w = self.ANALYSIS_WIDTH
+        h = max(2, int(round(w * src_h / src_w / 2)) * 2)
+        duration = max(0.5, end_time - start_time)
 
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-        current_frame = start_frame
-        detections: List[Tuple[float, float, float, float]] = []
+        try:
+            frames = self._read_gray_frames(video_path, start_time, duration, w, h, keyframes_only=True)
+            if len(frames) < 4:  # sparse keyframes: decode 1 frame per second instead
+                frames = self._read_gray_frames(video_path, start_time, duration, w, h, keyframes_only=False)
+        except Exception as e:
+            logger.warning(f"Face tracking frame extraction failed: {e}")
+            return []
 
-        last_known_x = 0.5
-        last_known_y = 0.4
-        last_known_w = 0.2
+        detections: List[Detection] = []
+        step_t = duration / max(1, len(frames))
+        for i, gray in enumerate(frames):
+            gray = cv2.equalizeHist(gray)
+            faces = self.detector.detectMultiScale(
+                gray,
+                scaleFactor=1.12,
+                minNeighbors=5,
+                minSize=(max(16, int(w * 0.05)), max(16, int(h * 0.05)))
+            )
+            if len(faces) > 0:
+                fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])  # largest face = main speaker
+                detections.append((i * step_t, (fx + fw / 2.0) / w, (fy + fh / 2.0) / h, fw / w))
 
-        while current_frame <= end_frame:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if (current_frame - start_frame) % frame_step == 0:
-                t = (current_frame - start_frame) / video_fps
-                h, w = frame.shape[:2]
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                faces = self.detector.detectMultiScale(
-                    gray,
-                    scaleFactor=1.15,
-                    minNeighbors=4,
-                    minSize=(int(w * 0.08), int(h * 0.08))
-                )
-
-                best_x, best_y, best_w = last_known_x, last_known_y, last_known_w
-                if len(faces) > 0:
-                    # Pick largest face (primary speaker)
-                    largest = max(faces, key=lambda f: f[2] * f[3])
-                    fx, fy, fw, fh = largest
-                    best_x = (fx + fw / 2.0) / w
-                    best_y = (fy + fh / 2.0) / h
-                    best_w = fw / w
-
-                    last_known_x = best_x
-                    last_known_y = best_y
-                    last_known_w = best_w
-
-                detections.append((t, best_x, best_y, best_w))
-
-            current_frame += 1
-
-        cap.release()
-
-        if not detections:
-            return [(0.0, 0.5, 0.5, 0.2)]
-
+        logger.info(f"Face tracking: {len(detections)}/{len(frames)} sampled frames with faces.")
         return detections
 
-    def compute_smoothed_crop_x(
-        self,
-        detections: List[Tuple[float, float, float, float]],
-        src_w: int,
-        src_h: int,
-        target_w: int = 1080,
-        target_h: int = 1920
-    ) -> float:
-        """
-        Computes a stable horizontal center for 9:16 crop.
-        Uses median/exponential smoothing to avoid jittery movements.
-        """
+    @staticmethod
+    def face_summary(detections: List[Detection]) -> Optional[Tuple[float, float, float]]:
+        """Median (x, y, width) of the detected faces, normalized."""
         if not detections:
-            return src_w / 2.0
+            return None
+        arr = np.array([(d[1], d[2], d[3]) for d in detections])
+        med = np.median(arr, axis=0)
+        return float(med[0]), float(med[1]), float(med[2])
 
-        crop_w_src = int(src_h * (9 / 16))
-        if crop_w_src > src_w:
-            crop_w_src = src_w
-
-        xs = [d[1] for d in detections]
-        med_x = float(np.median(xs))
-        target_center_x = med_x * src_w
-
-        half_crop = crop_w_src / 2.0
-        clamped_center_x = max(half_crop, min(src_w - half_crop, target_center_x))
-
-        return clamped_center_x
+    def compute_smoothed_crop_x(self, detections: List[Detection], src_w: int, crop_w: int) -> float:
+        """Stable horizontal crop center (median of faces, clamped inside the frame)."""
+        summary = self.face_summary(detections)
+        target_center_x = (summary[0] * src_w) if summary else src_w / 2.0
+        half_crop = crop_w / 2.0
+        return max(half_crop, min(src_w - half_crop, target_center_x))

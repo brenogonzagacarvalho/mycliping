@@ -9,6 +9,8 @@ data/clips/
 data/uploads/
 data/live_buffer/
 data/models/models--*
+data/social_config.json
+data/post_queue.json
 
 # Environments & secrets
 .env

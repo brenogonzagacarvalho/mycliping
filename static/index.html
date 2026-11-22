@@ -66,6 +66,17 @@
           <span class="clip-count" id="gallery-badge">0</span>
         </button>
 
+        <button class="nav-item" data-tab="tab-autopost" id="btn-tab-autopost">
+          <span class="icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 2L11 13"></path>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </span>
+          <span class="label">Auto-Postagem</span>
+          <span class="clip-count" id="autopost-badge">0</span>
+        </button>
+
         <button class="nav-item" data-tab="tab-settings" id="btn-tab-settings">
           <span class="icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -181,9 +192,9 @@
             <div class="option-group">
               <label><span class="label-icon">📐</span> Enquadramento / Formato</label>
               <select id="opt-layout-mode" class="form-select">
-                <option value="smart_face" selected>9:16 Rastreamento de Rosto com IA (Recomendado)</option>
-                <option value="split_screen">9:16 Split Screen (Facecam topo + Jogo embaixo)</option>
-                <option value="blurred_bg">9:16 Fundo Desfocado (Vídeo original centralizado)</option>
+                <option value="smart_face" selected>9:16 Rastreamento de Rosto (Podcast / Câmera Principal)</option>
+                <option value="blurred_bg">9:16 Fundo Desfocado (Ideal p/ Games e Lives — Tela Inteira)</option>
+                <option value="split_screen">9:16 Split Screen (Facecam topo + Jogo embaixo sem tarjas)</option>
                 <option value="original">Manter 16:9 Original</option>
                 <option value="1:1">1:1 Quadrado (Feed)</option>
               </select>
@@ -295,12 +306,18 @@
         <div class="gallery-header">
           <div>
             <h2>Seus Clipes <span class="gradient-text">Virais</span></h2>
-            <p>Visualize, baixe em alta resolução e compartilhe nas redes sociais.</p>
+            <p>Selecione os melhores clipes para postar automaticamente no TikTok e YouTube Shorts.</p>
           </div>
-          <button class="btn-secondary" id="btn-refresh-gallery">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            Atualizar
-          </button>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <button class="btn-secondary" id="btn-select-all-clips">Selecionar Todos</button>
+            <button class="btn-primary" id="btn-post-selected" style="display: none;">
+              🚀 Postar / Agendar (<span id="selected-clips-count">0</span>)
+            </button>
+            <button class="btn-secondary" id="btn-refresh-gallery">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              Atualizar
+            </button>
+          </div>
         </div>
 
         <!-- Clips Grid -->
@@ -310,6 +327,165 @@
             <div class="empty-icon">🎬</div>
             <h3>Nenhum clipe gerado ainda</h3>
             <p>Vá até a aba "Clipar Vídeos" ou "Clipar Lives" para criar seus primeiros cortes virais!</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3.5: AUTO-POSTAGEM (YOUTUBE SHORTS & TIKTOK) -->
+      <section class="tab-pane" id="tab-autopost">
+        <div class="hero-banner">
+          <div class="hero-content">
+            <h2>Automação de Postagens — <span class="gradient-text">TikTok & YouTube Shorts</span></h2>
+            <p>Conecte suas contas, escolha os clipes na Galeria e publique agora ou agende uma fila automática com intervalo entre os vídeos.</p>
+          </div>
+        </div>
+
+        <!-- Agendamento em Lote -->
+        <div class="card glass-panel" style="margin-bottom: 24px;">
+          <h3>🚀 Enviar Clipes Selecionados</h3>
+          <p id="autopost-selected-summary" class="status-meta" style="margin: 8px 0 16px;">Nenhum clipe selecionado. Marque os clipes desejados na Galeria de Clipes.</p>
+
+          <div class="options-grid" style="margin-bottom: 16px;">
+            <div class="option-group">
+              <label>Plataformas de Destino</label>
+              <div style="display: flex; gap: 16px; padding: 10px 0;">
+                <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+                  <input type="checkbox" id="post-plat-youtube" checked> YouTube Shorts
+                </label>
+                <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+                  <input type="checkbox" id="post-plat-tiktok" checked> TikTok
+                </label>
+              </div>
+            </div>
+
+            <div class="option-group">
+              <label>Quando Postar</label>
+              <select id="post-schedule-mode" class="form-select">
+                <option value="now" selected>Postar Imediatamente</option>
+                <option value="schedule">Agendar Data/Hora + Intervalo</option>
+              </select>
+            </div>
+
+            <div class="option-group" id="post-schedule-dt-group" style="display: none;">
+              <label>Início do Agendamento</label>
+              <input type="datetime-local" id="post-start-dt" class="form-input">
+            </div>
+
+            <div class="option-group" id="post-schedule-int-group" style="display: none;">
+              <label>Intervalo entre Clipes</label>
+              <select id="post-interval-hours" class="form-select">
+                <option value="0">Todos juntos no horário</option>
+                <option value="2">A cada 2 horas</option>
+                <option value="4" selected>A cada 4 horas</option>
+                <option value="6">A cada 6 horas</option>
+                <option value="12">A cada 12 horas</option>
+                <option value="24">1 por dia (24h)</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="button" class="btn-primary" id="btn-enqueue-posts">📤 Iniciar / Agendar Postagens</button>
+        </div>
+
+        <!-- Fila de Publicações -->
+        <div class="card glass-panel" style="margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3>📋 Fila de Postagens</h3>
+            <button type="button" class="btn-secondary" id="btn-refresh-queue">Atualizar Fila</button>
+          </div>
+          <div id="autopost-queue-list" style="display: flex; flex-direction: column; gap: 10px;">
+            <p class="status-meta">Nenhuma postagem na fila.</p>
+          </div>
+        </div>
+
+        <!-- Contas Conectadas & Credenciais -->
+        <div class="card glass-panel settings-card">
+          <h3>🔗 Contas Conectadas & APIs</h3>
+          <p class="subtitle" style="margin-bottom: 18px;">Configure uma única vez. Os tokens ficam salvos localmente em <code>data/social_config.json</code>.</p>
+
+          <!-- YouTube -->
+          <div class="settings-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h4>▶️ YouTube Shorts (Google OAuth2)</h4>
+              <span id="yt-conn-badge" class="status-meta">Desconectado</span>
+            </div>
+            <p class="status-meta" style="margin-bottom: 10px;">Redirect URI para colocar no Google Cloud Console: <code>http://localhost:3107/api/social/youtube/callback</code></p>
+            <div class="options-grid">
+              <div class="form-row">
+                <label>Google Client ID:</label>
+                <input type="text" id="yt-client-id" class="form-input" placeholder="123456-xxxx.apps.googleusercontent.com">
+              </div>
+              <div class="form-row">
+                <label>Google Client Secret:</label>
+                <input type="password" id="yt-client-secret" class="form-input" placeholder="GOCSPX-...">
+              </div>
+              <div class="form-row">
+                <label>Privacidade Padrão:</label>
+                <select id="yt-privacy" class="form-select">
+                  <option value="public">Público</option>
+                  <option value="unlisted">Não listado</option>
+                  <option value="private">Privado</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button type="button" class="btn-secondary" id="btn-save-social">Salvar Credenciais</button>
+              <button type="button" class="btn-primary" id="btn-connect-yt">Conectar YouTube</button>
+              <button type="button" class="btn-danger-outline" id="btn-disconnect-yt" style="display: none;">Desconectar</button>
+            </div>
+          </div>
+
+          <!-- TikTok -->
+          <div class="settings-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h4>🎵 TikTok (Content Posting API v2)</h4>
+              <span id="tt-conn-badge" class="status-meta">Desconectado</span>
+            </div>
+            <p class="status-meta" style="margin-bottom: 10px;">Redirect URI para colocar no TikTok Developers: <code>http://localhost:3107/api/social/tiktok/callback</code></p>
+            <div class="options-grid">
+              <div class="form-row">
+                <label>TikTok Client Key:</label>
+                <input type="text" id="tt-client-key" class="form-input" placeholder="aw...">
+              </div>
+              <div class="form-row">
+                <label>TikTok Client Secret:</label>
+                <input type="password" id="tt-client-secret" class="form-input" placeholder="********">
+              </div>
+              <div class="form-row">
+                <label>Privacidade Padrão:</label>
+                <select id="tt-privacy" class="form-select">
+                  <option value="PUBLIC_TO_EVERYONE">Público</option>
+                  <option value="MUTUAL_FOLLOW_FRIENDS">Amigos</option>
+                  <option value="SELF_ONLY">Privado (Rascunho/Sandbox)</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+              <button type="button" class="btn-primary" id="btn-connect-tt">Conectar TikTok</button>
+              <button type="button" class="btn-danger-outline" id="btn-disconnect-tt" style="display: none;">Desconectar</button>
+            </div>
+          </div>
+
+          <!-- Webhook opcional -->
+          <div class="settings-section">
+            <h4>🌐 Webhook Opcional (n8n / Make / Zapier)</h4>
+            <p class="status-meta" style="margin-bottom: 10px;">Alternativa caso queira enviar o vídeo + título + hashtags para um fluxo externo publicar automaticamente.</p>
+            <div class="form-row">
+              <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+                <input type="checkbox" id="wh-enabled"> Ativar Webhook quando API direta não estiver conectada
+              </label>
+            </div>
+            <div class="options-grid">
+              <div class="form-row">
+                <label>URL do Webhook:</label>
+                <input type="text" id="wh-url" class="form-input" placeholder="https://seu-n8n.com/webhook/postar">
+              </div>
+              <div class="form-row">
+                <label>Secret (Header X-ClipStudio-Secret):</label>
+                <input type="password" id="wh-secret" class="form-input" placeholder="opcional">
+              </div>
+            </div>
+            <button type="button" class="btn-secondary" id="btn-save-webhook" style="margin-top: 10px;">Salvar Webhook</button>
           </div>
         </div>
       </section>
@@ -356,7 +532,7 @@
                 </div>
                 <div class="form-row">
                   <label>Modelo Gemini:</label>
-                  <input type="text" id="set-gemini-model" class="form-input" placeholder="gemini-1.5-flash">
+                  <input type="text" id="set-gemini-model" class="form-input" placeholder="gemini-2.5-flash">
                 </div>
               </div>
 
@@ -405,6 +581,39 @@
                   <option value="en">Inglês</option>
                   <option value="es">Espanhol</option>
                 </select>
+              </div>
+            </div>
+
+            <!-- Performance Section -->
+            <div class="settings-section">
+              <h3>⚡ Desempenho e Hardware</h3>
+              <div class="form-row">
+                <div id="hw-info" class="status-meta" style="line-height: 1.6;">Detectando hardware...</div>
+              </div>
+              <div class="form-row">
+                <label>Vídeos processados ao mesmo tempo:</label>
+                <select id="set-max-jobs" class="form-select">
+                  <option value="1">1 (recomendado para CPUs de 2 a 4 núcleos)</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label>Codificador de vídeo:</label>
+                <select id="set-video-encoder" class="form-select">
+                  <option value="auto">Automático (usa a GPU se disponível)</option>
+                  <option value="h264_qsv">Intel Quick Sync (h264_qsv)</option>
+                  <option value="h264_nvenc">NVIDIA NVENC (h264_nvenc)</option>
+                  <option value="h264_amf">AMD AMF (h264_amf)</option>
+                  <option value="libx264">CPU (libx264)</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
+                  <input type="checkbox" id="set-cleanup-source">
+                  Apagar o vídeo original baixado após gerar os clipes (economiza disco)
+                </label>
               </div>
             </div>
 

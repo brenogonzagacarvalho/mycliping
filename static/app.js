@@ -61,6 +61,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const clipsGrid = document.getElementById("clips-grid");
   const galleryEmptyState = document.getElementById("gallery-empty-state");
   const btnRefreshGallery = document.getElementById("btn-refresh-gallery");
+  const btnSelectAllClips = document.getElementById("btn-select-all-clips");
+  const btnPostSelected = document.getElementById("btn-post-selected");
+  const selectedClipsCount = document.getElementById("selected-clips-count");
+  const selectedClipIds = new Set();
+  let galleryClipsCache = [];
 
   // Settings
   const settingsForm = document.getElementById("settings-form");
@@ -79,6 +84,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const setGroqModel = document.getElementById("set-groq-model");
   const setWhisperModel = document.getElementById("set-whisper-model");
   const setWhisperLang = document.getElementById("set-whisper-lang");
+  const setMaxJobs = document.getElementById("set-max-jobs");
+  const setVideoEncoder = document.getElementById("set-video-encoder");
+  const setCleanupSource = document.getElementById("set-cleanup-source");
+  const hwInfo = document.getElementById("hw-info");
   const settingsSaveMsg = document.getElementById("settings-save-msg");
   const currentAiMode = document.getElementById("current-ai-mode");
 
@@ -352,6 +361,7 @@ document.addEventListener("DOMContentLoaded", () => {
     modalBarFill.style.width = `${pct}%`;
     modalStage.textContent = data.stage || "Processando";
     modalMsg.textContent = data.message || "";
+    modalMsg.style.color = "";
 
     // Highlight step items
     const steps = [
@@ -523,6 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/gallery");
       if (!res.ok) return;
       const clips = await res.json();
+      galleryClipsCache = clips;
 
       galleryBadge.textContent = clips.length;
 
@@ -557,6 +568,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     card.innerHTML = `
       <div class="clip-thumb-box" data-id="${clip.id}">
+        <label class="clip-select-box" title="Selecionar para Auto-Postagem" style="position:absolute;top:10px;left:10px;z-index:5;background:rgba(0,0,0,0.65);padding:5px 8px;border-radius:8px;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;">
+          <input type="checkbox" class="clip-select-cb" data-id="${clip.id}" ${selectedClipIds.has(clip.id) ? "checked" : ""}> Postar
+        </label>
         <img src="${thumbUrl}" alt="${clip.hook_title}" onerror="this.src='https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe'">
         <div class="virality-score-badge">
           <span class="score-star">★</span>
@@ -598,6 +612,16 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
     `;
+
+    // Selection checkbox (don't open video modal when clicking checkbox)
+    const selectBox = card.querySelector(".clip-select-box");
+    const selectCb = card.querySelector(".clip-select-cb");
+    selectBox.addEventListener("click", (e) => e.stopPropagation());
+    selectCb.addEventListener("change", () => {
+      if (selectCb.checked) selectedClipIds.add(clip.id);
+      else selectedClipIds.delete(clip.id);
+      refreshSelectionUI();
+    });
 
     // Click on thumbnail opens player modal
     card.querySelector(".clip-thumb-box").addEventListener("click", () => {
@@ -673,16 +697,33 @@ document.addEventListener("DOMContentLoaded", () => {
       setOllamaUrl.value = s.ollama_url || "http://localhost:11434";
       setOllamaModel.value = s.ollama_model || "llama3.2:latest";
       setGeminiKey.value = s.gemini_api_key || "";
-      setGeminiModel.value = s.gemini_model || "gemini-1.5-flash";
+      setGeminiModel.value = s.gemini_model || "gemini-2.5-flash";
       setOpenaiKey.value = s.openai_api_key || "";
       setOpenaiModel.value = s.openai_model || "gpt-4o-mini";
       setGroqKey.value = s.groq_api_key || "";
       setGroqModel.value = s.groq_model || "llama-3.3-70b-versatile";
       setWhisperModel.value = s.whisper_model || "base";
       setWhisperLang.value = s.whisper_language || "auto";
+      if (setMaxJobs) setMaxJobs.value = String(s.max_concurrent_jobs || 1);
+      if (setVideoEncoder) setVideoEncoder.value = s.video_encoder || "auto";
+      if (setCleanupSource) setCleanupSource.checked = s.cleanup_source_after !== false;
 
       updateProviderFieldsVisibility(s.ai_provider);
       updateAiModeBadge(s.ai_provider);
+
+      // Load hardware & encoder info
+      try {
+        const sysRes = await fetch("/api/system");
+        if (sysRes.ok && hwInfo) {
+          const sys = await sysRes.json();
+          const gpuLabel = sys.gpu_encoding ? `GPU (${sys.encoder})` : `CPU (${sys.encoder})`;
+          hwInfo.innerHTML =
+            `<strong>CPU:</strong> ${sys.cpu_name} (${sys.cpu_threads} threads) • ` +
+            `<strong>RAM:</strong> ${sys.ram_gb} GB • ` +
+            `<strong>Codificador:</strong> ${gpuLabel} • ` +
+            `<strong>Recomendado:</strong> ${sys.recommended_concurrent_jobs} vídeo(s) simultâneo(s) e ${sys.render_workers} render(s) por vídeo`;
+        }
+      } catch (e) {}
 
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -725,7 +766,10 @@ document.addEventListener("DOMContentLoaded", () => {
       groq_api_key: setGroqKey.value.trim(),
       groq_model: setGroqModel.value.trim(),
       whisper_model: setWhisperModel.value,
-      whisper_language: setWhisperLang.value
+      whisper_language: setWhisperLang.value,
+      max_concurrent_jobs: setMaxJobs ? parseInt(setMaxJobs.value) : 1,
+      video_encoder: setVideoEncoder ? setVideoEncoder.value : "auto",
+      cleanup_source_after: setCleanupSource ? setCleanupSource.checked : true
     };
 
     try {
@@ -745,7 +789,260 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  function refreshSelectionUI() {
+    const n = selectedClipIds.size;
+    if (selectedClipsCount) selectedClipsCount.textContent = n;
+    if (btnPostSelected) btnPostSelected.style.display = n > 0 ? "inline-flex" : "none";
+    const summary = document.getElementById("autopost-selected-summary");
+    if (summary) {
+      summary.textContent = n > 0
+        ? `${n} clipe(s) selecionado(s) pronto(s) para envio/agendamento.`
+        : "Nenhum clipe selecionado. Marque os clipes desejados na Galeria de Clipes.";
+    }
+  }
+
+  if (btnSelectAllClips) {
+    btnSelectAllClips.addEventListener("click", () => {
+      const allSelected = galleryClipsCache.length > 0 && selectedClipIds.size === galleryClipsCache.length;
+      selectedClipIds.clear();
+      if (!allSelected) galleryClipsCache.forEach(c => selectedClipIds.add(c.id));
+      document.querySelectorAll(".clip-select-cb").forEach(cb => {
+        cb.checked = selectedClipIds.has(cb.dataset.id);
+      });
+      refreshSelectionUI();
+    });
+  }
+
+  if (btnPostSelected) {
+    btnPostSelected.addEventListener("click", () => {
+      refreshSelectionUI();
+      switchTab("tab-autopost");
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Auto-Postagem (YouTube Shorts, TikTok & Webhook)
+  // -------------------------------------------------------------------------
+  const autopostBadge = document.getElementById("autopost-badge");
+  const postScheduleMode = document.getElementById("post-schedule-mode");
+  const postScheduleDtGroup = document.getElementById("post-schedule-dt-group");
+  const postScheduleIntGroup = document.getElementById("post-schedule-int-group");
+  const postStartDt = document.getElementById("post-start-dt");
+  const postIntervalHours = document.getElementById("post-interval-hours");
+  const btnEnqueuePosts = document.getElementById("btn-enqueue-posts");
+  const btnRefreshQueue = document.getElementById("btn-refresh-queue");
+  const autopostQueueList = document.getElementById("autopost-queue-list");
+
+  const ytClientId = document.getElementById("yt-client-id");
+  const ytClientSecret = document.getElementById("yt-client-secret");
+  const ytPrivacy = document.getElementById("yt-privacy");
+  const ytConnBadge = document.getElementById("yt-conn-badge");
+  const btnConnectYt = document.getElementById("btn-connect-yt");
+  const btnDisconnectYt = document.getElementById("btn-disconnect-yt");
+
+  const ttClientKey = document.getElementById("tt-client-key");
+  const ttClientSecret = document.getElementById("tt-client-secret");
+  const ttPrivacy = document.getElementById("tt-privacy");
+  const ttConnBadge = document.getElementById("tt-conn-badge");
+  const btnConnectTt = document.getElementById("btn-connect-tt");
+  const btnDisconnectTt = document.getElementById("btn-disconnect-tt");
+
+  const whEnabled = document.getElementById("wh-enabled");
+  const whUrl = document.getElementById("wh-url");
+  const whSecret = document.getElementById("wh-secret");
+
+  if (postScheduleMode) {
+    postScheduleMode.addEventListener("change", () => {
+      const sched = postScheduleMode.value === "schedule";
+      postScheduleDtGroup.style.display = sched ? "block" : "none";
+      postScheduleIntGroup.style.display = sched ? "block" : "none";
+      if (sched && !postStartDt.value) {
+        const d = new Date(Date.now() + 15 * 60000);
+        postStartDt.value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      }
+    });
+  }
+
+  async function loadSocialStatus() {
+    try {
+      const res = await fetch("/api/social/status");
+      if (!res.ok) return;
+      const st = await res.json();
+      if (ytClientId) ytClientId.value = st.youtube.client_id || "";
+      if (ytPrivacy) ytPrivacy.value = st.youtube.default_privacy || "public";
+      if (ytConnBadge) {
+        ytConnBadge.textContent = st.youtube.connected ? `✅ Conectado (${st.youtube.channel_title || "YouTube"})` : "Desconectado";
+        ytConnBadge.style.color = st.youtube.connected ? "var(--accent-green, #10b981)" : "";
+      }
+      if (btnDisconnectYt) btnDisconnectYt.style.display = st.youtube.connected ? "inline-flex" : "none";
+
+      if (ttClientKey) ttClientKey.value = st.tiktok.client_key || "";
+      if (ttPrivacy) ttPrivacy.value = st.tiktok.default_privacy || "PUBLIC_TO_EVERYONE";
+      if (ttConnBadge) {
+        ttConnBadge.textContent = st.tiktok.connected ? `✅ Conectado (${st.tiktok.display_name || "TikTok"})` : "Desconectado";
+        ttConnBadge.style.color = st.tiktok.connected ? "var(--accent-green, #10b981)" : "";
+      }
+      if (btnDisconnectTt) btnDisconnectTt.style.display = st.tiktok.connected ? "inline-flex" : "none";
+
+      if (whEnabled) whEnabled.checked = !!st.webhook.enabled;
+      if (whUrl) whUrl.value = st.webhook.url || "";
+    } catch (e) {}
+  }
+
+  async function saveSocialCredentials() {
+    const payload = {
+      youtube: {
+        client_id: ytClientId.value.trim(),
+        client_secret: ytClientSecret.value.trim(),
+        default_privacy: ytPrivacy.value,
+      },
+      tiktok: {
+        client_key: ttClientKey.value.trim(),
+        client_secret: ttClientSecret.value.trim(),
+        default_privacy: ttPrivacy.value,
+      },
+      webhook: {
+        enabled: whEnabled.checked,
+        url: whUrl.value.trim(),
+        secret: whSecret.value.trim(),
+      },
+    };
+    const res = await fetch("/api/social/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) await loadSocialStatus();
+  }
+
+  document.getElementById("btn-save-social")?.addEventListener("click", async () => {
+    await saveSocialCredentials();
+    alert("Credenciais salvas com sucesso!");
+  });
+  document.getElementById("btn-save-webhook")?.addEventListener("click", async () => {
+    await saveSocialCredentials();
+    alert("Webhook salvo com sucesso!");
+  });
+
+  btnConnectYt?.addEventListener("click", async () => {
+    await saveSocialCredentials();
+    const res = await fetch("/api/social/youtube/auth-url");
+    if (!res.ok) {
+      const err = await res.json();
+      return alert(err.detail || "Preencha Client ID e Client Secret do Google.");
+    }
+    const data = await res.json();
+    window.location.href = data.url;
+  });
+
+  btnConnectTt?.addEventListener("click", async () => {
+    await saveSocialCredentials();
+    const res = await fetch("/api/social/tiktok/auth-url");
+    if (!res.ok) {
+      const err = await res.json();
+      return alert(err.detail || "Preencha Client Key e Client Secret do TikTok.");
+    }
+    const data = await res.json();
+    window.location.href = data.url;
+  });
+
+  btnDisconnectYt?.addEventListener("click", async () => {
+    await fetch("/api/social/disconnect/youtube", { method: "POST" });
+    loadSocialStatus();
+  });
+  btnDisconnectTt?.addEventListener("click", async () => {
+    await fetch("/api/social/disconnect/tiktok", { method: "POST" });
+    loadSocialStatus();
+  });
+
+  async function loadSocialQueue() {
+    if (!autopostQueueList) return;
+    try {
+      const res = await fetch("/api/social/queue");
+      if (!res.ok) return;
+      const items = await res.json();
+      if (autopostBadge) autopostBadge.textContent = items.filter(i => i.status === "scheduled" || i.status === "uploading").length;
+      if (items.length === 0) {
+        autopostQueueList.innerHTML = '<p class="status-meta">Nenhuma postagem na fila.</p>';
+        return;
+      }
+      autopostQueueList.innerHTML = "";
+      items.forEach((item) => {
+        const dt = new Date(item.scheduled_at * 1000).toLocaleString("pt-BR");
+        const platLabel = item.platform === "youtube_shorts" ? "▶️ YouTube Shorts" : "🎵 TikTok";
+        const statusMap = {
+          scheduled: "🕒 Agendado",
+          uploading: "⬆️ Enviando...",
+          published: "✅ Publicado",
+          error: "❌ Erro",
+        };
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px;border-radius:10px;background:rgba(255,255,255,0.04);";
+        row.innerHTML = `
+          <div>
+            <strong>${item.clip_title}</strong>
+            <div class="status-meta">${platLabel} • ${dt} • <strong>${statusMap[item.status] || item.status}</strong></div>
+            ${item.error ? `<div style="color:#f87171;font-size:12px;margin-top:4px;">${item.error}</div>` : ""}
+            ${item.published_url ? `<a href="${item.published_url}" target="_blank" style="font-size:12px;color:#38bdf8;">Abrir publicação ↗</a>` : ""}
+          </div>
+          <button type="button" class="btn-danger-outline btn-del-queue" data-id="${item.id}" style="padding:6px 10px;">Remover</button>
+        `;
+        row.querySelector(".btn-del-queue").addEventListener("click", async () => {
+          await fetch(`/api/social/queue/${item.id}`, { method: "DELETE" });
+          loadSocialQueue();
+        });
+        autopostQueueList.appendChild(row);
+      });
+    } catch (e) {}
+  }
+
+  btnEnqueuePosts?.addEventListener("click", async () => {
+    if (selectedClipIds.size === 0) {
+      alert("Selecione pelo menos 1 clipe na Galeria de Clipes primeiro.");
+      return switchTab("tab-gallery");
+    }
+    const platforms = [];
+    if (document.getElementById("post-plat-youtube")?.checked) platforms.push("youtube_shorts");
+    if (document.getElementById("post-plat-tiktok")?.checked) platforms.push("tiktok");
+    if (platforms.length === 0) return alert("Escolha ao menos 1 plataforma (YouTube Shorts ou TikTok).");
+
+    let startTs = null;
+    let intervalHrs = 0;
+    if (postScheduleMode.value === "schedule") {
+      if (!postStartDt.value) return alert("Informe a data/hora inicial do agendamento.");
+      startTs = new Date(postStartDt.value).getTime() / 1000;
+      intervalHrs = parseFloat(postIntervalHours.value || "0");
+    }
+
+    const res = await fetch("/api/social/queue/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clip_ids: Array.from(selectedClipIds),
+        platforms,
+        start_timestamp: startTs,
+        interval_hours: intervalHrs,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      return alert(err.detail || "Erro ao agendar postagens.");
+    }
+    selectedClipIds.clear();
+    document.querySelectorAll(".clip-select-cb").forEach(cb => cb.checked = false);
+    refreshSelectionUI();
+    await loadSocialQueue();
+    alert("Clipes enviados para a fila de Auto-Postagem!");
+  });
+
+  btnRefreshQueue?.addEventListener("click", loadSocialQueue);
+
   // Initial loads
   loadSettings();
   loadGallery();
+  loadSocialStatus();
+  loadSocialQueue();
+  if (window.location.hash === "#tab-autopost") {
+    switchTab("tab-autopost");
+  }
 });
