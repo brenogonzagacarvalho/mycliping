@@ -924,6 +924,14 @@ document.addEventListener("DOMContentLoaded", () => {
     alert("Webhook salvo com sucesso!");
   });
 
+  document.getElementById("btn-test-webhook")?.addEventListener("click", async () => {
+    await saveSocialCredentials();
+    const res = await fetch("/api/social/webhook/test", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) return alert(data.detail || "Erro ao testar webhook.");
+    alert(`Webhook respondeu OK (HTTP ${data.status_code})!`);
+  });
+
   btnConnectYt?.addEventListener("click", async () => {
     await saveSocialCredentials();
     const res = await fetch("/api/social/youtube/auth-url");
