@@ -368,8 +368,10 @@ class AIClipAnalyzer:
                         energy_score = float(np.clip((win.mean() - 1.0) * 8, -5, 10))
                         energy_score += float(np.clip((np.percentile(win, 95) - 1.6) * 3, 0, 8))
 
+                # If user wants many clips on a short video, avoid starving slots with oversized windows
+                dur_bonus = (dur / 25.0) if max_clips >= 5 else (dur / 10.0)
                 total_score = (rate_score * 4 + kw_hits * 3 + punctuation_bonus + hook_bonus
-                               + ending_bonus + energy_score + dur / 10)
+                               + ending_bonus + energy_score + dur_bonus)
 
                 candidates.append({
                     "start": round(win_start, 2),

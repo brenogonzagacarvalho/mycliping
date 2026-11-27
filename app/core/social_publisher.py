@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 import requests
 from app.config import DATA_DIR
 from app.core.storage import clip_storage
+from app.core.browser_publisher import browser_publisher
 
 logger = logging.getLogger("mycliping.social")
 
@@ -36,11 +37,6 @@ DEFAULT_SOCIAL_CONFIG = {
         "open_id": "",
         "display_name": "",
         "default_privacy": "PUBLIC_TO_EVERYONE",  # PUBLIC_TO_EVERYONE, MUTUAL_FOLLOW_FRIENDS, SELF_ONLY
-    },
-    "webhook": {
-        "enabled": False,
-        "url": "",
-        "secret": "",
     },
 }
 
@@ -82,13 +78,12 @@ class SocialPublisher:
             merged = {
                 "youtube": {**DEFAULT_SOCIAL_CONFIG["youtube"], **saved.get("youtube", {})},
                 "tiktok": {**DEFAULT_SOCIAL_CONFIG["tiktok"], **saved.get("tiktok", {})},
-                "webhook": {**DEFAULT_SOCIAL_CONFIG["webhook"], **saved.get("webhook", {})},
             }
             return merged
 
     def get_public_status(self) -> Dict[str, Any]:
         cfg = self.get_config()
-        yt, tt, wh = cfg["youtube"], cfg["tiktok"], cfg["webhook"]
+        yt, tt = cfg["youtube"], cfg["tiktok"]
         return {
             "youtube": {
                 "connected": bool(yt.get("refresh_token") or yt.get("access_token")),
@@ -104,21 +99,19 @@ class SocialPublisher:
                 "has_secret": bool(tt.get("client_secret")),
                 "default_privacy": tt.get("default_privacy", "PUBLIC_TO_EVERYONE"),
             },
-            "webhook": {
-                "enabled": bool(wh.get("enabled")),
-                "url": wh.get("url", ""),
-                "has_secret": bool(wh.get("secret")),
+            "browser": {
+                "profile_ready": browser_publisher.is_profile_initialized(),
             },
         }
 
     def update_credentials(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         with self._lock:
             cfg = self.get_config()
-            for section in ("youtube", "tiktok", "webhook"):
+            for section in ("youtube", "tiktok"):
                 if section in payload and isinstance(payload[section], dict):
                     for k, v in payload[section].items():
-                        # Don't overwrite secrets with empty placeholder if not sent
-                        if k in ("client_secret", "secret") and v == "":
+                        # Never overwrite existing IDs/secrets with empty strings
+                        if k in ("client_id", "client_key", "client_secret") and v == "":
                             continue
                         cfg[section][k] = v
             self._write_json(SOCIAL_CONFIG_FILE, cfg)
@@ -408,32 +401,6 @@ class SocialPublisher:
         return {"post_id": publish_id, "url": "https://www.tiktok.com"}
 
     # ------------------------------------------------------------------
-    # Optional Webhook (n8n / Make / Zapier)
-    # ------------------------------------------------------------------
-    def publish_webhook(
-        self, video_path: str, platform: str, title: str, description: str, tags: List[str]
-    ) -> Dict[str, Any]:
-        wh = self.get_config()["webhook"]
-        if not wh.get("enabled") or not wh.get("url"):
-            raise RuntimeError("Webhook não configurado.")
-        headers = {"X-ClipStudio-Secret": wh["secret"]} if wh.get("secret") else {}
-        with open(video_path, "rb") as f:
-            res = requests.post(
-                wh["url"],
-                headers=headers,
-                data={
-                    "platform": platform,
-                    "title": title,
-                    "description": description,
-                    "hashtags": " ".join(tags),
-                },
-                files={"video": (os.path.basename(video_path), f, "video/mp4")},
-                timeout=180,
-            )
-        res.raise_for_status()
-        return {"post_id": f"webhook_{int(time.time())}", "url": wh["url"]}
-
-    # ------------------------------------------------------------------
     # Queue & Scheduler
     # ------------------------------------------------------------------
     def list_queue(self) -> List[Dict[str, Any]]:
@@ -522,22 +489,24 @@ class SocialPublisher:
                     res = self.publish_youtube_short(
                         video_path, title, desc, tags, cfg["youtube"].get("default_privacy", "public")
                     )
-                elif cfg["webhook"].get("enabled"):
-                    res = self.publish_webhook(video_path, plat, title, desc, tags)
+                elif browser_publisher.is_profile_initialized():
+                    res = browser_publisher.publish_youtube_short(
+                        video_path, title, desc, tags, cfg["youtube"].get("default_privacy", "public")
+                    )
                 else:
-                    raise RuntimeError("Conecte o YouTube (ou ative o Webhook) na aba Auto-Postagem.")
+                    raise RuntimeError("Faça login uma vez clicando em 'Abrir Login (YouTube & TikTok)' na aba Auto-Postagem.")
             elif plat == "tiktok":
                 if cfg["tiktok"].get("access_token") or cfg["tiktok"].get("refresh_token"):
                     res = self.publish_tiktok_video(
                         video_path, f"{title} {' '.join(tags)}".strip(),
                         cfg["tiktok"].get("default_privacy", "PUBLIC_TO_EVERYONE")
                     )
-                elif cfg["webhook"].get("enabled"):
-                    res = self.publish_webhook(video_path, plat, title, desc, tags)
+                elif browser_publisher.is_profile_initialized():
+                    res = browser_publisher.publish_tiktok(video_path, title, tags)
                 else:
-                    raise RuntimeError("Conecte o TikTok (ou ative o Webhook) na aba Auto-Postagem.")
+                    raise RuntimeError("Faça login uma vez clicando em 'Abrir Login (YouTube & TikTok)' na aba Auto-Postagem.")
             else:
-                res = self.publish_webhook(video_path, plat, title, desc, tags)
+                raise RuntimeError(f"Plataforma desconhecida: {plat}")
 
             self._update_item(post_id, {
                 "status": "published",

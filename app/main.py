@@ -43,6 +43,7 @@ from app.core.storage import clip_storage
 from app.core.clip_pipeline import pipeline, PipelineTask
 from app.core.video_renderer import detect_hw_encoder, HW_ENCODERS
 from app.core.social_publisher import social_publisher
+from app.core.browser_publisher import browser_publisher
 
 logger = logging.getLogger("mycliping.api")
 
@@ -484,30 +485,12 @@ def delete_social_queue_item(post_id: str):
     return {"success": social_publisher.delete_queue_item(post_id)}
 
 
-@app.post("/api/social/webhook/test")
-def test_social_webhook():
-    import requests as _req
-    wh = social_publisher.get_config()["webhook"]
-    if not wh.get("url"):
-        raise HTTPException(status_code=400, detail="Informe a URL do Webhook primeiro.")
-    headers = {"X-ClipStudio-Secret": wh["secret"]} if wh.get("secret") else {}
+@app.post("/api/social/browser/login")
+def start_browser_login(target: str = "all"):
     try:
-        res = _req.post(
-            wh["url"],
-            headers=headers,
-            data={
-                "test": "true",
-                "platform": "tiktok",
-                "title": "Teste de conexão ClipStudio AI",
-                "description": "Teste de webhook funcionando!",
-                "hashtags": "#viral #shorts",
-            },
-            timeout=15,
-        )
-        res.raise_for_status()
-        return {"ok": True, "status_code": res.status_code, "response": res.text[:200]}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Falha ao chamar webhook: {e}")
+        return browser_publisher.open_login_session(target=target)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ---------------------------------------------------------------------------

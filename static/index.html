@@ -398,10 +398,26 @@
           </div>
         </div>
 
-        <!-- Contas Conectadas & Credenciais -->
-        <div class="card glass-panel settings-card">
-          <h3>🔗 Contas Conectadas & APIs</h3>
-          <p class="subtitle" style="margin-bottom: 18px;">Configure uma única vez. Os tokens ficam salvos localmente em <code>data/social_config.json</code>.</p>
+        <!-- Login Direto (Sem API / Sem Verificação) -->
+        <div class="card glass-panel" style="margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <h3>🔐 Sessão Única (Sem precisar configurar APIs)</h3>
+              <p class="status-meta" style="margin-top: 6px;">
+                Faça login normal no YouTube Studio e TikTok <strong>uma única vez</strong> neste navegador dedicado. Depois disso, basta escolher os clipes e publicar!
+              </p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <span id="browser-conn-badge" class="status-meta">Sessão não iniciada</span>
+              <button type="button" class="btn-primary" id="btn-browser-login">🌐 Abrir Login (YouTube & TikTok)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Contas Conectadas & Credenciais (Avançado) -->
+        <details class="card glass-panel settings-card">
+          <summary style="cursor: pointer; font-weight: 600; font-size: 1.05rem;">⚙️ Configurações Avançadas (APIs OAuth2 Oficiais — opcional)</summary>
+          <p class="subtitle" style="margin: 12px 0 18px;">Credenciais pré-configuradas em <code>data/social_config.json</code> caso prefira publicar via API oficial.</p>
 
           <!-- YouTube -->
           <div class="settings-section">
@@ -409,7 +425,6 @@
               <h4>▶️ YouTube Shorts (Google OAuth2)</h4>
               <span id="yt-conn-badge" class="status-meta">Desconectado</span>
             </div>
-            <p class="status-meta" style="margin-bottom: 10px;">Redirect URI para colocar no Google Cloud Console: <code>http://localhost:3107/api/social/youtube/callback</code></p>
             <div class="options-grid">
               <div class="form-row">
                 <label>Google Client ID:</label>
@@ -441,7 +456,6 @@
               <h4>🎵 TikTok (Content Posting API v2)</h4>
               <span id="tt-conn-badge" class="status-meta">Desconectado</span>
             </div>
-            <p class="status-meta" style="margin-bottom: 10px;">Redirect URI para colocar no TikTok Developers: <code>http://localhost:3107/api/social/tiktok/callback</code></p>
             <div class="options-grid">
               <div class="form-row">
                 <label>TikTok Client Key:</label>
@@ -465,32 +479,7 @@
               <button type="button" class="btn-danger-outline" id="btn-disconnect-tt" style="display: none;">Desconectar</button>
             </div>
           </div>
-
-          <!-- Webhook opcional -->
-          <div class="settings-section">
-            <h4>🌐 Webhook Opcional (n8n / Make / Zapier)</h4>
-            <p class="status-meta" style="margin-bottom: 10px;">Alternativa caso queira enviar o vídeo + título + hashtags para um fluxo externo publicar automaticamente.</p>
-            <div class="form-row">
-              <label style="display: flex; gap: 8px; align-items: center; cursor: pointer;">
-                <input type="checkbox" id="wh-enabled"> Ativar Webhook quando API direta não estiver conectada
-              </label>
-            </div>
-            <div class="options-grid">
-              <div class="form-row">
-                <label>URL do Webhook:</label>
-                <input type="text" id="wh-url" class="form-input" placeholder="https://seu-n8n.com/webhook/postar">
-              </div>
-              <div class="form-row">
-                <label>Secret (Header X-ClipStudio-Secret):</label>
-                <input type="password" id="wh-secret" class="form-input" placeholder="opcional">
-              </div>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-              <button type="button" class="btn-secondary" id="btn-save-webhook">Salvar Webhook</button>
-              <button type="button" class="btn-primary" id="btn-test-webhook">🧪 Testar Webhook</button>
-            </div>
-          </div>
-        </div>
+        </details>
       </section>
 
       <!-- TAB 4: SETTINGS & AI CONFIG -->

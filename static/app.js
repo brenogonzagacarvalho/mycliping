@@ -846,10 +846,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const ttConnBadge = document.getElementById("tt-conn-badge");
   const btnConnectTt = document.getElementById("btn-connect-tt");
   const btnDisconnectTt = document.getElementById("btn-disconnect-tt");
-
-  const whEnabled = document.getElementById("wh-enabled");
-  const whUrl = document.getElementById("wh-url");
-  const whSecret = document.getElementById("wh-secret");
+  const browserConnBadge = document.getElementById("browser-conn-badge");
+  const btnBrowserLogin = document.getElementById("btn-browser-login");
 
   if (postScheduleMode) {
     postScheduleMode.addEventListener("change", () => {
@@ -884,8 +882,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (btnDisconnectTt) btnDisconnectTt.style.display = st.tiktok.connected ? "inline-flex" : "none";
 
-      if (whEnabled) whEnabled.checked = !!st.webhook.enabled;
-      if (whUrl) whUrl.value = st.webhook.url || "";
+      if (browserConnBadge) {
+        const ready = st.browser && st.browser.profile_ready;
+        browserConnBadge.textContent = ready ? "✅ Sessão do navegador salva" : "Sessão não iniciada";
+        browserConnBadge.style.color = ready ? "var(--accent-green, #10b981)" : "";
+      }
     } catch (e) {}
   }
 
@@ -901,11 +902,6 @@ document.addEventListener("DOMContentLoaded", () => {
         client_secret: ttClientSecret.value.trim(),
         default_privacy: ttPrivacy.value,
       },
-      webhook: {
-        enabled: whEnabled.checked,
-        url: whUrl.value.trim(),
-        secret: whSecret.value.trim(),
-      },
     };
     const res = await fetch("/api/social/config", {
       method: "POST",
@@ -919,17 +915,15 @@ document.addEventListener("DOMContentLoaded", () => {
     await saveSocialCredentials();
     alert("Credenciais salvas com sucesso!");
   });
-  document.getElementById("btn-save-webhook")?.addEventListener("click", async () => {
-    await saveSocialCredentials();
-    alert("Webhook salvo com sucesso!");
-  });
 
-  document.getElementById("btn-test-webhook")?.addEventListener("click", async () => {
-    await saveSocialCredentials();
-    const res = await fetch("/api/social/webhook/test", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) return alert(data.detail || "Erro ao testar webhook.");
-    alert(`Webhook respondeu OK (HTTP ${data.status_code})!`);
+  btnBrowserLogin?.addEventListener("click", async () => {
+    const res = await fetch("/api/social/browser/login?target=all", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      return alert(err.detail || "Não foi possível abrir o navegador.");
+    }
+    alert("Navegador aberto! Faça login no YouTube Studio e no TikTok na janela que abriu e depois feche o navegador para salvar sua sessão.");
+    setTimeout(loadSocialStatus, 5000);
   });
 
   btnConnectYt?.addEventListener("click", async () => {
